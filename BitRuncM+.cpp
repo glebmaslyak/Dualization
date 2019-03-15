@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <ctime>
+#include <vector>
 
 using namespace std;
 
@@ -8,8 +9,11 @@ typedef unsigned int uint;
 
 int col; //Число столбцов
 int str; //Число строк
-int k; //Мощность множества P_i
+vector<int> k; //Мощности множеств P_i
+vector<bool> chain; //True, если цепь. False, если антицепь.
 int num_elem = 0;
+int max_anti_chain = 0;
+int curr_anti_chain = 0;
 
 const int bit_size = sizeof(uint) * 8;
 
@@ -149,12 +153,29 @@ void Bit_vector::set_zero(int i){
     data[n] &= ~mask[i % bit_size];
 }
 
+/*void Bit_vector::del_nei_col(int i){
+ int start = i/k;
+ for (int j = start*k; j < (start + 1) * k; ++j){
+ this->set_zero(j);
+ }
+ }*/
 void Bit_vector::del_nei_col(int i){
-    int start = i/k;
-    for (int j = start*k; j < (start + 1) * k; ++j){
-        this->set_zero(j);
+    
+    int pi_prev = 0;
+    
+    for (int pi : k){
+        if (i < pi_prev + pi){
+            for (int j = pi_prev; j < pi + pi_prev; ++j){
+                this->set_zero(j);
+            }
+            return;
+        }
+        else{
+            pi_prev += pi;
+        }
     }
 }
+
 
 bool Bit_vector::is_nil(){
     for (int i = 0; i < (len-1) / bit_size + 1; ++i){
@@ -164,8 +185,15 @@ bool Bit_vector::is_nil(){
 }
 
 void Bit_vector::do_support_str(int j){
-    for (int i = 0; i < (str - 1)/bit_size + 1; ++i){
-        data[i] = R.data[i] & (~Mst[j+1].data[i]) & Mst[j].data[i];
+    if (chain[j]){
+        for (int i = 0; i < (str - 1)/bit_size + 1; ++i){
+            data[i] = R.data[i] & (~Mst[j+1].data[i]) & Mst[j].data[i];
+        }
+    }
+    else{
+        for (int i = 0; i < (str - 1)/bit_size + 1; ++i){
+            data[i] = R.data[i] & Mst[j].data[i];
+        }
     }
 }
 
@@ -224,16 +252,37 @@ int find_min_weight(){
 }
 
 
+/*void print_H(){
+ for (int i = 0; i < col/k; ++i){
+ bool f = true;
+ for (int j = 0; j < k; ++j){
+ if (H.get(i*k + j)){
+ f = false;
+ out << j << " ";
+ }
+ }
+ if (f) out << k-1 << " ";
+ }
+ out << "\n";
+ }*/
+
 void print_H(){
-    for (int i = 0; i < col/k; ++i){
+    int c = 0;
+    for (int pi : k){
         bool f = true;
-        for (int j = 0; j < k; ++j){
-            if (H.get(i*k + j)){
+        for (int j = 0; j < pi; ++j){
+            if (H.get(c + j)){
                 f = false;
                 out << j << " ";
             }
         }
-        if (f) out << k-1 << " ";
+        if (chain[c]){
+            if (f) out << pi-1 << " ";
+        }
+        else{
+            if (f) out << -1 << " ";
+        }
+        c = c + pi;
     }
     out << "\n";
 }
@@ -256,23 +305,36 @@ void build_subtree(){
         D.set_zero(j);
         Bit_vector H1(H), D1(D), R1(R), *S1;
         S1 = new Bit_vector[col];
-        for (int k = 0; k < col; ++k){
-            int len = S[k].get_len();
-            S1[k].set_len(len);
+        for (int p = 0; p < col; ++p){
+            int len = S[p].get_len();
+            S1[p].set_len(len);
             if (len % bit_size == 0){
-                S1[k].data = new uint[len / bit_size];
-                for (int i = 0; i < len / bit_size; ++i){
-                    S1[k].data[i] = S[k].data[i];
+                S1[p].data = new uint[len / bit_size];
+                for (int t = 0; t < len / bit_size; ++t){
+                    S1[p].data[t] = S[p].data[t];
                 }
             }
             else{
-                S1[k].data = new uint[len / bit_size + 1];
-                for (int i = 0; i < len / bit_size + 1; ++i){
-                    S1[k].data[i] = S[k].data[i];
+                S1[p].data = new uint[len / bit_size + 1];
+                for (int t = 0; t < len / bit_size + 1; ++t){
+                    S1[p].data[t] = S[p].data[t];
                 }
             }
         }
         D.del_nei_col(j);
+        if (!chain[j]){
+            ++curr_anti_chain;
+        }
+        
+        if (max_anti_chain != -1){
+            if (curr_anti_chain >= max_anti_chain){
+                for (int p = 0; p < col; ++p){
+                    if (!chain[p]){
+                        D.set_zero(p);
+                    }
+                }
+            }
+        }
         if (create_node(j)){
             if (R.is_nil()){
                 print_H();
@@ -284,16 +346,16 @@ void build_subtree(){
             D = D1;
             H = H1;
             R = R1;
-            for (int k = 0; k < col; ++k){
-                int len = S[k].get_len();
+            for (int p = 0; p < col; ++p){
+                int len = S[p].get_len();
                 if (len % bit_size == 0){
-                    for (int i = 0; i < len / bit_size; ++i){
-                        S[k].data[i] = S1[k].data[i];
+                    for (int t = 0; t < len / bit_size; ++t){
+                        S[p].data[t] = S1[p].data[t];
                     }
                 }
                 else{
-                    for (int i = 0; i < len / bit_size + 1; ++i){
-                        S[k].data[i] = S1[k].data[i];
+                    for (int t = 0; t < len / bit_size + 1; ++t){
+                        S[p].data[t] = S1[p].data[t];
                     }
                 }
             }
@@ -303,20 +365,24 @@ void build_subtree(){
             D = D1;
             H = H1;
             R = R1;
-            for (int k = 0; k < col; ++k){
-                int len = S[k].get_len();
+            for (int p = 0; p < col; ++p){
+                int len = S[p].get_len();
                 if (len % bit_size == 0){
-                    for (int i = 0; i < len / bit_size; ++i){
-                        S[k].data[i] = S1[k].data[i];
+                    for (int t = 0; t < len / bit_size; ++t){
+                        S[p].data[t] = S1[p].data[t];
                     }
                 }
                 else{
-                    for (int i = 0; i < len / bit_size + 1; ++i){
-                        S[k].data[i] = S1[k].data[i];
+                    for (int t = 0; t < len / bit_size + 1; ++t){
+                        S[p].data[t] = S1[p].data[t];
                     }
                 }
             }
             delete S1;
+        }
+        
+        if (!chain[j]){
+            --curr_anti_chain;
         }
     }
 }
@@ -347,10 +413,30 @@ int create_node(int j){
 
 
 int main(){
-    int n, m, **L;
-    in >> k >> m >> n;
+    int n, m, **L, P_i;
+    in >> max_anti_chain >> m >> n;
     str = m;
-    col = k * n;
+    //col = k * n;
+    col = 0;
+    for (int i = 0; i < n; ++i){
+        in >> P_i;
+        k.push_back(P_i);
+        col += P_i;
+    }
+    int ch;
+    for (int pi : k){
+        in >> ch;
+        if (ch == 1){
+            for (int i = 0; i < pi; ++i){
+                chain.push_back(true);
+            }
+        }
+        else{
+            for (int i = 0; i < pi; ++i){
+                chain.push_back(false);
+            }
+        }
+    }
     init_mask();
     H = Bit_vector(col);
     R = Bit_vector(str);
@@ -371,8 +457,8 @@ int main(){
     L = new int*[str];
     
     for (int i = 0; i < str; ++i){
-        L[i] = new int[col/k];
-        for (int j = 0; j < col/k; ++j){
+        L[i] = new int[n];
+        for (int j = 0; j < n; ++j){
             in >> L[i][j];
         }
     }
@@ -382,11 +468,21 @@ int main(){
     }
     
     for (int i = 0; i < str; ++i){
-        for (int j = 0; j < col/k; ++j){
-            for (int s = 0; s < k; ++s){
-                if (L[i][j] > 0) M[i].set_one(j*k + s);
-                L[i][j] -= 1;
+        int c = 0;
+        for (int j = 0; j < n; ++j){
+            if (chain[c]){
+                for (int s = 0; s < k[j]; ++s){
+                    if (L[i][j] > 0) M[i].set_one(c + s);
+                    L[i][j] -= 1;
+                }
             }
+            else{
+                for (int s = 0; s < k[j]; ++s){
+                    M[i].set_one(c + s);
+                }
+                M[i].set_zero(c + L[i][j]);
+            }
+            c = c + k[j];
         }
     }
     
@@ -406,6 +502,14 @@ int main(){
     
     int start = clock();
     
+    if (max_anti_chain == 0){
+        for (int j = 0; j < col; ++j){
+            if (!chain[j]){
+                D.set_zero(j);
+            }
+        }
+    }
+    
     build_subtree();
     
     int finish = clock();
@@ -417,6 +521,7 @@ int main(){
     
     
 }
+
 
 
 
